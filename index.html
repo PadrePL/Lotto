@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0a766f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lotto">
+<title>Lotto Analizator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Układ: jedna kolumna jak biurko z kuponami. Nagłówek z wyborem gry, pasek danych, trzy zakładki robocze. Kupony jako bilety z linią odrywania, statystyki jako siatka kuponu z mapą ciepła. */
+:root{
+  --bg:#edf2f0;--surface:#ffffff;--surface2:#e2eae7;--fg:#13211f;--muted:#50645f;--line:#c7d3cf;
+  --accent:#0a766f;--accent-fg:#ffffff;--hot:#d6432a;--cold:#2d6bb0;--ok:#1b7a4a;--warn:#9a5f00;
+  --font-display:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-body:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1413;--surface:#141f1e;--surface2:#1c2b29;--fg:#e2ece8;--muted:#8da19c;--line:#2a3a37;
+    --accent:#3cc1b5;--accent-fg:#05201c;--hot:#ff7d5f;--cold:#6eabf0;--ok:#4cc58a;--warn:#e3a93c;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1413;--surface:#141f1e;--surface2:#1c2b29;--fg:#e2ece8;--muted:#8da19c;--line:#2a3a37;
+  --accent:#3cc1b5;--accent-fg:#05201c;--hot:#ff7d5f;--cold:#6eabf0;--ok:#4cc58a;--warn:#e3a93c;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.5;
+  padding-block:20px 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-family:var(--font-display);font-weight:800;font-size:clamp(1.7rem,6vw,2.4rem);letter-spacing:-.02em;line-height:1.1;margin:0;text-wrap:balance}
+h2{font-family:var(--font-display);font-size:1.1rem;font-weight:800;margin:0;text-wrap:balance}
+h3{font-family:var(--font-display);font-size:.95rem;font-weight:800;margin:1.1rem 0 .3rem}
+p{margin:.4rem 0}
+a{color:var(--accent)}
+.sub{color:var(--muted);margin:.35rem 0 1rem;max-width:62ch}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:.5rem .85rem;border-radius:6px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tab:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tools{margin:1.1rem 0 .6rem;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.notice{border:1px solid var(--line);background:var(--surface2);padding:.7rem 1rem;border-radius:6px;margin:1rem 0;font-size:.9rem;max-width:80ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;min-width:0}
+.data{margin-bottom:.4rem}
+.data-row{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.data-row>div{min-width:0;flex:1 1 280px}
+.pill{display:inline-block;font-family:var(--font-mono);font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;padding:.1rem .45rem;border-radius:4px;border:1px solid currentColor;margin-right:.4rem;vertical-align:.1em}
+.pill.user{color:var(--ok)}
+label{font-size:.76rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+input,select,textarea{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:.45rem .6rem;min-width:0;max-width:100%}
+input[type=number]{width:6.5rem}
+textarea{width:100%;font-family:var(--font-mono);font-size:.82rem}
+.btn{font:inherit;font-weight:700;border:1px solid var(--line);background:transparent;color:var(--fg);padding:.55rem 1rem;border-radius:6px;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin:.6rem 0}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field.grow{flex:1 1 230px}
+.hint{color:var(--muted);font-size:.88rem;max-width:75ch}
+.warn{color:var(--warn)}
+.import-grid{display:grid;gap:12px;margin-top:12px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+details{margin-top:4px;font-size:.9rem}
+summary{cursor:pointer;font-weight:600}
+details ul{margin:.4rem 0;padding-left:1.2rem}
+code,.mono{font-family:var(--font-mono);font-size:.85em;overflow-wrap:anywhere}
+.odds{font-family:var(--font-mono);font-size:.85rem;margin:.6rem 0}
+.coupons{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:14px;margin-top:.8rem}
+.ticket{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.ticket header{display:flex;justify-content:space-between;gap:8px;padding:.55rem .85rem;background:var(--surface2);border-bottom:2px dashed var(--line);font-family:var(--font-mono);font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+.bet{display:grid;grid-template-columns:1.3rem minmax(0,1fr);gap:4px 10px;padding:.65rem .85rem;border-bottom:1px solid var(--line)}
+.bet:last-child{border-bottom:0}
+.letter{font-family:var(--font-mono);color:var(--muted);font-weight:600;padding-top:.4rem}
+.balls{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.ball{display:inline-grid;place-items:center;width:2.15rem;height:2.15rem;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-family:var(--font-mono);font-weight:600;font-size:.88rem}
+.ball.euro{border-radius:7px;background:var(--surface2);color:var(--fg);border:2px solid var(--accent)}
+.sep{width:1px;height:1.4rem;background:var(--line);margin:0 4px}
+.hist{grid-column:2;font-size:.72rem;color:var(--muted);font-family:var(--font-mono)}
+.heat{display:grid;grid-template-columns:repeat(var(--cols,7),minmax(0,1fr));gap:4px;margin:.5rem 0 1rem}
+.cell{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:50px;border:1px solid var(--line);border-radius:4px;font-family:var(--font-mono);padding:2px;background:var(--surface)}
+.cell b{font-size:.95rem;font-weight:600}
+.cell i{font-style:normal;font-size:.68rem;color:var(--muted)}
+.heat.dense .cell{min-height:44px}
+.heat.dense .cell b{font-size:.78rem}
+.heat.dense .cell i{font-size:.6rem}
+.lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:1rem 0}
+.li{display:flex;justify-content:space-between;gap:8px;font-family:var(--font-mono);font-size:.84rem;padding:.25rem 0;border-bottom:1px solid var(--line)}
+.li:last-child{border-bottom:0}
+.tbl-wrap{overflow-x:auto;margin:.6rem 0}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600}
+thead th{font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+td.num{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.meter{position:relative;height:6px;background:var(--surface2);border-radius:3px;margin-top:6px;min-width:90px}
+.meter span{display:block;height:100%;background:var(--accent);border-radius:3px}
+.meter i{position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--fg)}
+.tag{font-size:.72rem;font-family:var(--font-mono);padding:.1rem .4rem;border:1px solid var(--line);border-radius:4px;white-space:nowrap}
+.tag.ok{color:var(--ok);border-color:var(--ok)}
+.tag.flag{color:var(--warn);border-color:var(--warn)}
+.verdict{margin:.8rem 0;max-width:75ch}
+#copyBox{margin-top:10px}
+/* Zaokrąglone kształty, większe pismo i wyższy kontrast */
+:root{--muted:#41555a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--muted:#a8b9b4}}
+:root[data-theme="dark"]{--muted:#a8b9b4}
+body{font-size:16px;line-height:1.55}
+.tab{border-radius:999px;padding:.6rem 1.1rem;font-size:1rem}
+.notice{border-radius:18px;padding:.9rem 1.2rem;font-size:.95rem}
+.card{border-radius:22px;padding:1.1rem 1.25rem}
+input,select,textarea{border-radius:14px;padding:.6rem .85rem;font-size:1rem}
+input[type=number]{width:7rem}
+.btn{border-radius:999px;padding:.7rem 1.3rem;font-size:1rem}
+label{font-size:.82rem}
+.hint{font-size:.97rem}
+.pill,.tag{border-radius:999px}
+.tag{font-size:.8rem;padding:.15rem .6rem}
+.pill{font-size:.72rem;padding:.12rem .6rem}
+.ticket{border-radius:22px}
+.ticket header{padding:.8rem 1.2rem;font-size:.88rem}
+.bet{grid-template-columns:1.5rem minmax(0,1fr);gap:6px 12px;padding:.85rem 1.2rem}
+.letter{font-size:1.05rem;padding-top:.5rem}
+.balls{gap:7px}
+.ball{width:2.6rem;height:2.6rem;font-size:1.05rem}
+.ball.euro{border-radius:50%}
+.hist{font-size:.8rem}
+.heat{gap:7px;max-width:600px}
+.heat .cell{border-radius:16px;aspect-ratio:1;min-height:0;padding:0;border-width:1.5px}
+.cell b{font-size:1.1rem}
+.cell i{font-size:.78rem}
+.heat.dense .cell{border-radius:14px;min-height:0}
+.heat.dense .cell b{font-size:.95rem}
+.heat.dense .cell i{font-size:.7rem}
+.li{font-size:.98rem;padding:.4rem 0}
+.tbl-wrap{border:1px solid var(--line);border-radius:18px}
+table{font-size:.97rem}
+th,td{padding:.7rem .85rem}
+.meter{height:8px;border-radius:999px}
+.meter span{border-radius:999px}
+@media (max-width:480px){
+  .card{padding:1rem}
+  .ball{width:2.4rem;height:2.4rem}
+  .heat .cell b{font-size:.95rem}
+  .heat .cell i{font-size:.68rem}
+  .heat.dense .cell b{font-size:.78rem}
+  .heat.dense .cell i{font-size:.6rem}
+}
+</style>
+<style>html{-webkit-text-size-adjust:100%}body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Lotto Analizator</h1>
+    <p class="sub">Statystyki losowań, generator kuponów i test własnych strategii na historii wyników.</p>
+    <div class="tabs" role="tablist" aria-label="Gra" id="gameTabs"></div>
+  </header>
+
+  <p class="notice"><strong>Zanim zaczniesz.</strong> Losowania są niezależne od siebie. Historia wyników nie zwiększa szansy trafienia, a kupon to wydatek, nie inwestycja. Zakładka „Test strategii” sprawdza to na prawdziwych losowaniach.</p>
+
+  <section class="card data" aria-labelledby="dataH">
+    <div class="data-row">
+      <div>
+        <h2 id="dataH">Dane</h2>
+        <p id="dataInfo"></p>
+      </div>
+      <button id="toggleImport" class="btn" aria-expanded="false" aria-controls="importBox">Wgraj wyniki</button>
+    </div>
+    <div id="importBox" class="import-grid" hidden>
+      <div class="field">
+        <label for="file">Plik z wynikami (.txt lub .csv)</label>
+        <input type="file" id="file" accept=".txt,.csv,text/plain,text/csv">
+      </div>
+      <div class="field">
+        <label for="paste">Albo wklej wyniki, jedno losowanie w wierszu</label>
+        <textarea id="paste" rows="5" placeholder="27.01.1957 8,12,31,39,43,45"></textarea>
+      </div>
+      <div class="field">
+        <label for="fromDate">Używaj losowań od dnia (opcjonalnie)</label>
+        <input type="date" id="fromDate">
+        <p class="hint" id="fromHint"></p>
+      </div>
+      <div class="btn-row">
+        <button id="loadBtn" class="btn primary">Wczytaj z pola</button>
+        <button id="resetBtn" class="btn">Usuń wgrane dane</button>
+      </div>
+      <p id="importMsg" role="status" class="hint"></p>
+      <details>
+        <summary>Skąd wziąć prawdziwe wyniki</summary>
+        <p>Strona mbnet.com.pl udostępnia pełną historię losowań w plikach, jedno losowanie w wierszu. Pobierz plik wybranej gry i wskaż go powyżej:</p>
+        <ul>
+          <li>Lotto: <a href="https://www.mbnet.com.pl/bazy/lotto.csv" target="_blank" rel="noopener">lotto.csv</a></li>
+          <li>Lotto Plus: <a href="https://www.mbnet.com.pl/bazy/lotto-plus.csv" target="_blank" rel="noopener">lotto-plus.csv</a></li>
+          <li>Mini Lotto: <a href="https://www.mbnet.com.pl/bazy/mini-lotto.csv" target="_blank" rel="noopener">mini-lotto.csv</a></li>
+          <li>Eurojackpot: <a href="https://www.mbnet.com.pl/bazy/eurojackpot.csv" target="_blank" rel="noopener">eurojackpot.csv</a></li>
+          <li>Wszystkie bazy: <a href="https://www.mbnet.com.pl/bazy-losowan" target="_blank" rel="noopener">mbnet.com.pl/bazy-losowan</a></li>
+        </ul>
+        <p>Akceptowane są wiersze z datą (np. 27.01.1957 albo 2026-10-24) i liczbami rozdzielonymi przecinkami lub spacjami. Dla Eurojackpot wiersz ma 5 liczb głównych i 2 liczby Euro. Wiersze niezgodne z obecnymi zasadami gry są pomijane i policzone w komunikacie. Bez dat zakładam kolejność od najstarszego losowania.</p>
+        <p>Dane wgrane ręcznie zapisują się w tej przeglądarce. Jeśli wyczyścisz dane strony, wczytaj plik ponownie.</p>
+        <p>Wersja uruchomiona pod własnym adresem, z włączoną codzienną aktualizacją plików w folderze data, wczytuje wyniki sama i nie wymaga wgrywania.</p>
+      </details>
+    </div>
+  </section>
+
+  <div class="tabs tools" role="tablist" aria-label="Narzędzia" id="toolTabs">
+    <button class="tab" role="tab" id="tab-gen" aria-controls="panel-gen" aria-selected="true">Generator</button>
+    <button class="tab" role="tab" id="tab-stats" aria-controls="panel-stats" aria-selected="false" tabindex="-1">Statystyki</button>
+    <button class="tab" role="tab" id="tab-bt" aria-controls="panel-bt" aria-selected="false" tabindex="-1">Test strategii</button>
+  </div>
+
+  <section id="panel-gen" role="tabpanel" aria-labelledby="tab-gen">
+    <div class="controls">
+      <div class="field"><label for="nCoupons">Liczba kuponów</label><input id="nCoupons" type="number" min="1" max="10" value="2" inputmode="numeric"></div>
+      <div class="field"><label for="nBets">Zakładów na kupon</label><input id="nBets" type="number" min="1" max="8" value="4" inputmode="numeric"></div>
+      <div class="field grow">
+        <label for="strategy">Strategia</label>
+        <select id="strategy">
+          <option value="mix">Częstość + zaległość (ważona)</option>
+          <option value="hot">Najczęściej losowane</option>
+          <option value="overdue">Najdłużej nie losowane</option>
+          <option value="balanced">Zbalansowana (typowy profil)</option>
+          <option value="lowshare">Rzadko wybierane przez graczy</option>
+          <option value="random">Czysto losowa</option>
+        </select>
+      </div>
+      <button id="genBtn" class="btn primary">Generuj numery</button>
+    </div>
+    <p class="hint" id="stratHint"></p>
+    <div class="btn-row"><button id="copyBtn" class="btn" hidden>Kopiuj kupony</button></div>
+    <div id="copyBox" hidden>
+      <label for="copyArea">Zaznacz i skopiuj ręcznie</label>
+      <textarea id="copyArea" rows="6" readonly></textarea>
+    </div>
+    <p id="oddsLine" class="odds"></p>
+    <div id="coupons" class="coupons"></div>
+  </section>
+
+  <section id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+    <div class="controls">
+      <div class="field">
+        <label for="metric">Pokaż na kuponie</label>
+        <select id="metric">
+          <option value="freq">Ile razy padła liczba</option>
+          <option value="gap">Losowań od ostatniego trafienia</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="win">Zakres historii</label>
+        <select id="win">
+          <option value="0">Cała historia</option>
+          <option value="500">Ostatnie 500</option>
+          <option value="200">Ostatnie 200</option>
+          <option value="100">Ostatnie 100</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint" id="heatLegend"></p>
+    <h3>Liczby podstawowe</h3>
+    <div id="heat" class="heat"></div>
+    <div id="extraWrap" hidden>
+      <h3>Liczby Euro</h3>
+      <div id="heatExtra" class="heat"></div>
+    </div>
+    <div class="lists" id="lists"></div>
+    <div class="card" id="chiBox"></div>
+    <div class="card" id="profileBox" style="margin-top:12px"></div>
+  </section>
+
+  <section id="panel-bt" role="tabpanel" aria-labelledby="tab-bt" hidden>
+    <p class="hint">Aplikacja cofa się w czasie. Dla każdego z ostatnich losowań zna tylko wyniki wcześniejsze, generuje zakłady każdą strategią i liczy trafienia. Tak „uczy się” na przeszłości i od razu sprawdza, czy to cokolwiek daje.</p>
+    <div class="controls">
+      <div class="field"><label for="btN">Ile ostatnich losowań</label><input id="btN" type="number" min="20" max="3000" value="300" inputmode="numeric"></div>
+      <div class="field"><label for="btBets">Zakładów na losowanie</label><input id="btBets" type="number" min="1" max="20" value="5" inputmode="numeric"></div>
+      <button id="btRun" class="btn primary">Uruchom test</button>
+    </div>
+    <div id="btOut"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+// ==LOGIC START==
+const GAMES={
+  lotto:{key:'lotto',file:'data/lotto.csv',name:'Lotto',label:'Lotto 6/49',n:49,k:6,m:0,e:0,cols:7,maxBets:8,from:''},
+  plus:{key:'plus',file:'data/lotto-plus.csv',name:'Lotto Plus',label:'Lotto Plus 6/49',n:49,k:6,m:0,e:0,cols:7,maxBets:8,from:''},
+  mini:{key:'mini',file:'data/mini-lotto.csv',name:'Mini Lotto',label:'Mini Lotto 5/42',n:42,k:5,m:0,e:0,cols:7,maxBets:8,from:''},
+  euro:{key:'euro',file:'data/eurojackpot.csv',name:'Eurojackpot',label:'Eurojackpot 5/50 + 2/12',n:50,k:5,m:12,e:2,cols:10,maxBets:6,from:'2022-03-25'}
+};
+
+function comb(n,r){ if(r<0||r>n) return 0; let x=1; for(let i=1;i<=r;i++){ x=x*(n-r+i)/i; } return Math.round(x); }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function hyperP(j,g){ return comb(g.k,j)*comb(g.n-g.k,g.k-j)/comb(g.n,g.k); }
+
+function gammaln(x){
+  const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
+  let y=x, tmp=x+5.5; tmp-=(x+0.5)*Math.log(tmp); let ser=1.000000000190015;
+  for(let j=0;j<6;j++){ y+=1; ser+=c[j]/y; }
+  return -tmp+Math.log(2.5066282746310005*ser/x);
+}
+function gser(a,x){
+  let ap=a,sum=1/a,del=sum;
+  for(let n=0;n<500;n++){ ap+=1; del*=x/ap; sum+=del; if(Math.abs(del)<Math.abs(sum)*1e-13) break; }
+  return sum*Math.exp(-x+a*Math.log(x)-gammaln(a));
+}
+function gcf(a,x){
+  const FP=1e-300; let b=x+1-a,c=1/FP,d=1/b,h=d;
+  for(let i=1;i<500;i++){
+    const an=-i*(i-a); b+=2; d=an*d+b; if(Math.abs(d)<FP) d=FP; c=b+an/c; if(Math.abs(c)<FP) c=FP; d=1/d;
+    const del=d*c; h*=del; if(Math.abs(del-1)<1e-13) break;
+  }
+  return Math.exp(-x+a*Math.log(x)-gammaln(a))*h;
+}
+function gammq(a,x){ if(x<=0) return 1; return x<a+1 ? 1-gser(a,x) : gcf(a,x); }
+
+function validSet(a,max){ return new Set(a).size===a.length && a.every(x=>Number.isInteger(x)&&x>=1&&x<=max); }
+
+function parseResults(text,g,fromDate){
+  const rows=[]; let skipped=0, older=0;
+  const lines=String(text).split(/\r?\n/);
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line||!/\d/.test(line)) continue;
+    let date=null;
+    const iso=line.match(/(\d{4})-(\d{2})-(\d{2})/);
+    const pl=iso?null:line.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+    if(iso) date=iso[0];
+    else if(pl) date=pl[3]+'-'+pl[2].padStart(2,'0')+'-'+pl[1].padStart(2,'0');
+    let ints;
+    if(line.indexOf(';')>=0&&iso){
+      const f=line.split(';').map(s=>s.trim());
+      const di=f.findIndex(s=>/^\d{4}-\d{2}-\d{2}$/.test(s));
+      ints=((f[di+2]||'').match(/\d+/g)||[]).map(Number);
+      if(g.e) ints=ints.concat((f[di+3]||'').match(/\d+/g)?(f[di+3].match(/\d+/g)).map(Number):[]);
+    } else {
+      const mm=iso||pl;
+      let rest=mm?line.slice(mm.index+mm[0].length):line;
+      rest=rest.replace(/\d{1,2}:\d{2}(:\d{2})?/g,' ');
+      ints=(rest.match(/\d+/g)||[]).map(Number);
+      if(!mm&&ints.length===g.k+g.e+1) ints=ints.slice(1);
+    }
+    if(ints.length!==g.k+g.e){ skipped++; continue; }
+    const nums=ints.slice(0,g.k), extra=ints.slice(g.k);
+    if(!validSet(nums,g.n)||(g.e&&!validSet(extra,g.m))){ skipped++; continue; }
+    if(fromDate&&date&&date<fromDate){ older++; continue; }
+    nums.sort((a,b)=>a-b); extra.sort((a,b)=>a-b);
+    rows.push({date:date,nums:nums,extra:extra});
+  }
+  const allDated=rows.length>0&&rows.every(r=>r.date);
+  if(allDated) rows.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  const seen=new Set(), draws=[];
+  for(const r of rows){
+    const key=(r.date||'')+'|'+r.nums.join(',')+'|'+r.extra.join(',');
+    if(seen.has(key)) continue; seen.add(key); draws.push(r);
+  }
+  return {draws:draws,skipped:skipped,older:older,allDated:allDated};
+}
+
+function computeStats(draws,g){
+  const n=draws.length, N=g.n, k=g.k;
+  const cnt=new Array(N+1).fill(0), last=new Array(N+1).fill(-1);
+  const ecnt=new Array(g.m+1).fill(0), elast=new Array(g.m+1).fill(-1);
+  const pairs=new Uint32Array((N+1)*(N+1));
+  const oddDist=new Array(k+1).fill(0);
+  let sumA=0,sumB=0;
+  draws.forEach((d,i)=>{
+    let odd=0,s=0;
+    for(let a=0;a<d.nums.length;a++){
+      const x=d.nums[a]; cnt[x]++; last[x]=i; s+=x; if(x%2) odd++;
+      for(let b=a+1;b<d.nums.length;b++) pairs[x*(N+1)+d.nums[b]]++;
+    }
+    d.extra.forEach(x=>{ ecnt[x]++; elast[x]=i; });
+    oddDist[odd]++; sumA+=s; sumB+=s*s;
+  });
+  const gap=last.map(l=>l<0?n:n-1-l);
+  const egap=elast.map(l=>l<0?n:n-1-l);
+  const exp=n*k/N; let chi=0;
+  for(let i=1;i<=N;i++) chi+=Math.pow(cnt[i]-exp,2)/exp;
+  const p=n>0?gammq((N-1)/2,chi/2):1;
+  const sumMean=n?sumA/n:0, sumSd=n?Math.sqrt(Math.max(0,sumB/n-sumMean*sumMean)):0;
+  return {n:n,cnt:cnt,gap:gap,ecnt:ecnt,egap:egap,pairs:pairs,oddDist:oddDist,exp:exp,chi:chi,p:p,sumMean:sumMean,sumSd:sumSd};
+}
+
+function makeWeights(key,cnt,gap,n,N,k){
+  const avg=n*k/N, mg=N/k, w=[0];
+  for(let i=1;i<=N;i++){
+    const f=(cnt[i]+1)/(avg+1), gp=(gap[i]+1)/mg;
+    let v=1;
+    if(key==='hot') v=Math.pow(f,4);
+    else if(key==='overdue') v=Math.pow(gp,2);
+    else if(key==='mix') v=f*f*gp;
+    else if(key==='lowshare') v=(i>31)?2.2:(i<=12?0.55:1);
+    w.push(v);
+  }
+  return w;
+}
+function weightedPick(w,k,rng){
+  const keys=[];
+  for(let i=1;i<w.length;i++){ const u=rng()||1e-12; keys.push([-Math.log(u)/Math.max(w[i],1e-9),i]); }
+  keys.sort((a,b)=>a[0]-b[0]);
+  return keys.slice(0,k).map(x=>x[1]).sort((a,b)=>a-b);
+}
+function consecPairs(a){ let c=0; for(let i=1;i<a.length;i++) if(a[i]-a[i-1]===1) c++; return c; }
+function isAP(a){ const d=a[1]-a[0]; for(let i=2;i<a.length;i++) if(a[i]-a[i-1]!==d) return false; return true; }
+function validBalanced(a,g){
+  const k=g.k,N=g.n, mean=k*(N+1)/2, sd=Math.sqrt(k*(N+1)*(N-k)/12);
+  const s=a.reduce((x,y)=>x+y,0);
+  if(s<mean-0.67*sd||s>mean+0.67*sd) return false;
+  const odd=a.filter(x=>x%2).length, r=Math.round(k/2);
+  if(odd<r-1||odd>r+1) return false;
+  return consecPairs(a)<=1;
+}
+function validLow(a,g){
+  if(consecPairs(a)>1||isAP(a)) return false;
+  return a.filter(x=>x>31).length>=Math.floor(g.k/2);
+}
+function genBet(key,ctx,g,rng){
+  const wMain=makeWeights(key,ctx.cnt,ctx.gap,ctx.n,g.n,g.k);
+  const ok=key==='balanced'?validBalanced:(key==='lowshare'?validLow:null);
+  let nums=null;
+  for(let t=0;t<(ok?300:1);t++){ nums=weightedPick(wMain,g.k,rng); if(!ok||ok(nums,g)) break; }
+  let extra=[];
+  if(g.e){ extra=weightedPick(makeWeights(key,ctx.ecnt,ctx.egap,ctx.n,g.m,g.e),g.e,rng); }
+  return {nums:nums,extra:extra};
+}
+function histCheck(bet,draws){
+  const set=new Set(bet.nums); let c3=0,best=0;
+  for(const d of draws){ let h=0; for(const x of d.nums) if(set.has(x)) h++; if(h>=3) c3++; if(h>best) best=h; }
+  return {c3:c3,best:best};
+}
+
+function backtest(draws,g,testN,betsPer,seed){
+  const n=draws.length, start=Math.max(30,n-testN);
+  const keys=['mix','hot','overdue','balanced','lowshare','random'];
+  const res={}; keys.forEach(k=>{ res[k]={hits:0,ge3:0,best:0}; });
+  const cnt=new Array(g.n+1).fill(0), last=new Array(g.n+1).fill(-1);
+  const ecnt=new Array(g.m+1).fill(0), elast=new Array(g.m+1).fill(-1);
+  const add=(d,i)=>{ d.nums.forEach(x=>{ cnt[x]++; last[x]=i; }); d.extra.forEach(x=>{ ecnt[x]++; elast[x]=i; }); };
+  for(let i=0;i<start;i++) add(draws[i],i);
+  const rng=mulberry32(seed);
+  for(let t=start;t<n;t++){
+    const ctx={n:t,cnt:cnt,ecnt:ecnt,gap:cnt.map((_,i)=>last[i]<0?t:t-1-last[i]),egap:ecnt.map((_,i)=>elast[i]<0?t:t-1-elast[i])};
+    const actual=new Set(draws[t].nums);
+    for(const key of keys){
+      const r=res[key];
+      for(let b=0;b<betsPer;b++){
+        const bet=genBet(key,ctx,g,rng);
+        let h=0; for(const x of bet.nums) if(actual.has(x)) h++;
+        r.hits+=h; if(h>=3) r.ge3++; if(h>r.best) r.best=h;
+      }
+    }
+    add(draws[t],t);
+  }
+  const tested=n-start, bets=tested*betsPer, N=g.n, k=g.k, p=k/N;
+  const exp=k*p, variance=k*p*(1-p)*(N-k)/(N-1), se=Math.sqrt(variance/bets);
+  let p3=0; for(let j=3;j<=k;j++) p3+=hyperP(j,g);
+  return {tested:tested,bets:bets,res:res,exp:exp,se:se,p3:p3,keys:keys};
+}
+// ==LOGIC END==
+
+const $=id=>document.getElementById(id);
+const pad=x=>String(x).padStart(2,'0');
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const fmt=new Intl.NumberFormat('pl-PL');
+const dec=(x,d)=>x.toFixed(d).replace('.',',');
+const LABELS={mix:'Częstość + zaległość',hot:'Najczęściej losowane',overdue:'Najdłużej nie losowane',balanced:'Zbalansowana',lowshare:'Rzadko wybierane przez graczy',random:'Czysto losowa'};
+const HINTS={
+  mix:'Losuje liczby z wagami: im częściej padała i im dawniej ostatnio, tym większa waga.',
+  hot:'Mocno premiuje liczby, które padały najczęściej w wybranej historii.',
+  overdue:'Mocno premiuje liczby, które najdłużej nie wypadły.',
+  balanced:'Losowe zestawy o typowej sumie, mieszance parzystych i nieparzystych oraz bez długich ciągów.',
+  lowshare:'Częściej wybiera liczby powyżej 31 i unika wzorów (ciągi, same daty urodzin). Nie zwiększa szansy trafienia, ale przy trafieniu mniej osób dzieli wygraną.',
+  random:'Punkt odniesienia: czysty los.'
+};
+function plZak(n){ if(n===1) return 'zakład'; const a=n%10,b=n%100; return (a>=2&&a<=4&&!(b>=12&&b<=14))?'zakłady':'zakładów'; }
+
+const store={
+  load(k){ try{ const s=localStorage.getItem('lotto-analizator-v1-'+k); return s?JSON.parse(s):null; }catch(e){ return null; } },
+  save(k,v){ try{ localStorage.setItem('lotto-analizator-v1-'+k,JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ localStorage.removeItem('lotto-analizator-v1-'+k); }catch(e){} }
+};
+
+const S={game:'lotto',tab:'gen',data:{},last:null,btRun:0,loaded:{},loading:{}};
+
+function ensure(key){ return S.data[key]||{draws:[],source:'none'}; }
+
+/* Najpierw próbuje pobrać plik z folderu data pod własnym adresem strony (aktualizowany automatycznie), potem sięga po dane zapisane w przeglądarce. */
+async function loadGame(key){
+  const g=GAMES[key];
+  try{
+    const res=await fetch(g.file+'?t='+Date.now(),{cache:'no-store'});
+    if(res.ok){
+      const r=parseResults(await res.text(),g,g.from);
+      if(r.draws.length>=10){ S.data[key]={draws:r.draws,source:'auto'}; return; }
+    }
+  }catch(e){}
+  const st=store.load(key);
+  if(st&&Array.isArray(st.draws)&&st.draws.length>=10) S.data[key]={draws:st.draws,source:'user'};
+}
+
+function tabKeys(container){
+  container.addEventListener('keydown',function(e){
+    if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return;
+    const tabs=Array.from(container.querySelectorAll('[role=tab]'));
+    let i=tabs.indexOf(document.activeElement); if(i<0) return;
+    i=(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+    tabs[i].focus(); tabs[i].click(); e.preventDefault();
+  });
+}
+
+function renderDataInfo(){
+  const g=GAMES[S.game], D=ensure(S.game);
+  const first=D.draws[0], last=D.draws[D.draws.length-1];
+  const range=(first&&first.date&&last&&last.date)?', od '+first.date+' do '+last.date:'';
+  if(D.source==='none'){
+    $('dataInfo').textContent=S.loading[S.game]?'Sprawdzam, czy są dostępne dane…':'Brak danych dla tej gry. Wgraj plik z wynikami poniżej.';
+    if(!S.loading[S.game]){ $('importBox').hidden=false; $('toggleImport').setAttribute('aria-expanded','true'); $('toggleImport').textContent='Zwiń'; }
+  } else if(D.source==='auto'){
+    $('dataInfo').innerHTML='<span class="pill user">Automatycznie</span>'+fmt.format(D.draws.length)+' losowań'+range+'. Plik odświeża się codziennie.';
+  } else {
+    $('dataInfo').innerHTML='<span class="pill user">Twoje dane</span>'+fmt.format(D.draws.length)+' losowań'+range+'.';
+  }
+  $('fromHint').textContent=g.key==='euro'
+    ? 'Eurojackpot zmieniał pulę liczb Euro, więc starsze losowania zaburzają statystyki. Domyślnie biorę losowania od marca 2022. Wyczyść pole, żeby użyć całej historii.'
+    : 'Zostaw puste, żeby użyć całej historii.';
+}
+
+function buildGameTabs(){
+  const box=$('gameTabs'); box.innerHTML='';
+  Object.keys(GAMES).forEach(function(key){
+    const b=document.createElement('button');
+    b.className='tab'; b.type='button'; b.setAttribute('role','tab'); b.id='game-'+key; b.textContent=GAMES[key].label;
+    b.addEventListener('click',function(){ setGame(key); });
+    box.appendChild(b);
+  });
+  tabKeys(box);
+}
+
+function setGame(key){
+  S.game=key; const g=GAMES[key];
+  Object.keys(GAMES).forEach(function(k){ const b=$('game-'+k); const on=k===key; b.setAttribute('aria-selected',on?'true':'false'); b.tabIndex=on?0:-1; });
+  $('nBets').max=g.maxBets; if(+$('nBets').value>g.maxBets) $('nBets').value=g.maxBets;
+  $('fromDate').value=g.from;
+  $('importMsg').textContent='';
+  $('extraWrap').hidden=!g.e;
+  if(!S.loaded[key]){
+    S.loaded[key]=true; S.loading[key]=true;
+    loadGame(key).then(function(){ S.loading[key]=false; if(S.game===key) refreshAll(); });
+  }
+  refreshAll();
+}
+
+function refreshAll(){
+  renderDataInfo();
+  generate();
+  if(S.tab==='stats') renderStats();
+  else if(S.tab==='bt') runBt();
+  else $('btOut').innerHTML='';
+}
+
+function showTab(t){
+  S.tab=t;
+  ['gen','stats','bt'].forEach(function(x){
+    $('panel-'+x).hidden=x!==t;
+    const b=$('tab-'+x); b.setAttribute('aria-selected',x===t?'true':'false'); b.tabIndex=x===t?0:-1;
+  });
+  if(t==='stats') renderStats();
+  if(t==='bt') runBt();
+}
+
+/* ---------- import ---------- */
+function doImport(text){
+  const g=GAMES[S.game];
+  const r=parseResults(text,g,$('fromDate').value||'');
+  const msg=$('importMsg');
+  if(r.draws.length<10){
+    msg.className='hint warn';
+    msg.textContent='Nie rozpoznano wyników dla gry '+g.label+' (potrzeba co najmniej 10 poprawnych wierszy, rozpoznano '+r.draws.length+', pominięto '+r.skipped+'). Sprawdź, czy wybrana zakładka gry pasuje do pliku.';
+    return;
+  }
+  S.data[S.game]={draws:r.draws,source:'user'};
+  store.save(S.game,{draws:r.draws});
+  const first=r.draws[0], last=r.draws[r.draws.length-1];
+  let t='Wczytano '+fmt.format(r.draws.length)+' losowań'+(first.date?' ('+first.date+' do '+last.date+')':'')+'.';
+  if(r.skipped) t+=' Pominięto '+fmt.format(r.skipped)+' wierszy niezgodnych z obecnymi zasadami gry.';
+  if(r.older) t+=' Pominięto '+fmt.format(r.older)+' starszych niż wybrana data.';
+  if(!r.allDated) t+=' Nie wszystkie wiersze mają daty, więc zakładam kolejność od najstarszego.';
+  msg.className='hint'; msg.textContent=t;
+  refreshAll();
+}
+
+/* ---------- generator ---------- */
+function generate(){
+  const g=GAMES[S.game], D=ensure(S.game).draws;
+  if(D.length<10){
+    S.last=null; $('stratHint').textContent=HINTS[$('strategy').value];
+    $('coupons').innerHTML='<p class="hint warn">'+(S.loading[S.game]?'Wczytuję dane…':'Brak danych dla tej gry. Wgraj wyniki w sekcji Dane, żeby wygenerować numery.')+'</p>';
+    $('oddsLine').textContent=''; $('copyBtn').hidden=true; $('copyBox').hidden=true;
+    return;
+  }
+  const nc=clamp(parseInt($('nCoupons').value,10)||1,1,10);
+  const nb=clamp(parseInt($('nBets').value,10)||1,1,g.maxBets);
+  $('nCoupons').value=nc; $('nBets').value=nb;
+  const key=$('strategy').value;
+  $('stratHint').textContent=HINTS[key];
+  const ctx=computeStats(D,g);
+  const coupons=[], seen=new Set();
+  for(let c=0;c<nc;c++){
+    const bets=[];
+    for(let b=0;b<nb;b++){
+      let bet,tries=0,sig;
+      do{ bet=genBet(key,ctx,g,Math.random); sig=bet.nums.join(',')+'|'+bet.extra.join(','); tries++; }while(seen.has(sig)&&tries<60);
+      seen.add(sig); bet.hist=histCheck(bet,D); bets.push(bet);
+    }
+    coupons.push(bets);
+  }
+  S.last=coupons; renderCoupons(coupons,g);
+}
+
+function renderCoupons(coupons,g){
+  const total=comb(g.n,g.k)*(g.e?comb(g.m,g.e):1);
+  const nb=coupons.reduce((s,c)=>s+c.length,0);
+  $('oddsLine').textContent='Szansa na główną wygraną: 1 do '+fmt.format(Math.round(total/nb))+' przy '+nb+(nb===1?' zakładzie':' zakładach')+' łącznie. Pojedynczy zakład: 1 do '+fmt.format(total)+'.';
+  let html='';
+  coupons.forEach(function(bets,ci){
+    html+='<article class="ticket"><header><span>Kupon '+(ci+1)+'</span><span>'+bets.length+' '+plZak(bets.length)+'</span></header>';
+    bets.forEach(function(b,bi){
+      html+='<div class="bet"><span class="letter">'+String.fromCharCode(65+bi)+'</span><div class="balls">';
+      html+=b.nums.map(function(x){ return '<span class="ball">'+pad(x)+'</span>'; }).join('');
+      if(b.extra.length) html+='<span class="sep" aria-hidden="true"></span>'+b.extra.map(function(x){ return '<span class="ball euro" title="Liczba Euro">'+pad(x)+'</span>'; }).join('');
+      html+='</div><span class="hist">W historii: '+fmt.format(b.hist.c3)+'× co najmniej 3 trafienia, max '+b.hist.best+'</span></div>';
+    });
+    html+='</article>';
+  });
+  $('coupons').innerHTML=html;
+  $('copyBtn').hidden=false; $('copyBox').hidden=true;
+}
+
+function couponsText(){
+  const g=GAMES[S.game]; if(!S.last) return '';
+  return S.last.map(function(bets,ci){
+    return 'Kupon '+(ci+1)+'\n'+bets.map(function(b,bi){
+      return String.fromCharCode(65+bi)+': '+b.nums.map(pad).join(' ')+(b.extra.length?' | '+b.extra.map(pad).join(' '):'');
+    }).join('\n');
+  }).join('\n\n');
+}
+function copyCoupons(){
+  const text=couponsText(), btn=$('copyBtn');
+  const done=function(){ btn.textContent='Skopiowano'; setTimeout(function(){ btn.textContent='Kopiuj kupony'; },1600); };
+  const fallback=function(){ const box=$('copyBox'); box.hidden=false; const ta=$('copyArea'); ta.value=text; ta.focus(); ta.select(); };
+  try{ navigator.clipboard.writeText(text).then(done,fallback); }catch(e){ fallback(); }
+}
+
+/* ---------- statystyki ---------- */
+function heat(el,N,cols,cnt,gap,n,k,metric){
+  const e=n*k/N, sd=Math.sqrt(n*(k/N)*(1-k/N));
+  el.style.setProperty('--cols',cols); el.className='heat'+(cols>=10?' dense':'');
+  let h='';
+  for(let i=1;i<=N;i++){
+    let val,style;
+    if(metric==='freq'){
+      val=cnt[i]; const z=sd>0?(val-e)/sd:0, t=Math.min(Math.abs(z)/3,1)*55;
+      style='background:color-mix(in srgb,var('+(z>=0?'--hot':'--cold')+') '+t.toFixed(0)+'%,var(--surface))';
+    } else {
+      val=gap[i]; const t=Math.min((val/(N/k))/4,1)*55;
+      style='background:color-mix(in srgb,var(--accent) '+t.toFixed(0)+'%,var(--surface))';
+    }
+    h+='<div class="cell" style="'+style+'" title="Liczba '+i+': '+val+'"><b>'+i+'</b><i>'+val+'</i></div>';
+  }
+  el.innerHTML=h;
+}
+function listCard(title,rows,note){
+  return '<div class="card"><h3 style="margin-top:0">'+title+'</h3>'+rows.map(function(r){ return '<div class="li"><span>'+r[0]+'</span><span>'+r[1]+'</span></div>'; }).join('')+(note?'<p class="hint" style="margin-bottom:0">'+note+'</p>':'')+'</div>';
+}
+function renderStats(){
+  const g=GAMES[S.game], all=ensure(S.game).draws;
+  if(all.length<10){
+    $('heat').innerHTML=''; $('heatExtra').innerHTML=''; $('heatLegend').textContent=''; $('chiBox').innerHTML=''; $('profileBox').innerHTML='';
+    $('lists').innerHTML='<p class="hint warn">'+(S.loading[S.game]?'Wczytuję dane…':'Brak danych dla tej gry. Wgraj wyniki w sekcji Dane.')+'</p>';
+    return;
+  }
+  const W=parseInt($('win').value,10)||0, D=W?all.slice(-W):all;
+  const st=computeStats(D,g), metric=$('metric').value, N=g.n, k=g.k;
+  heat($('heat'),N,g.cols,st.cnt,st.gap,st.n,k,metric);
+  if(g.e) heat($('heatExtra'),g.m,6,st.ecnt,st.egap,st.n,g.e,metric);
+  $('heatLegend').textContent=metric==='freq'
+    ? 'Liczba w komórce to ile razy padła w wybranym zakresie ('+fmt.format(st.n)+' losowań). Średnio każda liczba pada '+dec(st.exp,1)+' razy. Czerwień: częściej niż średnio, niebieski: rzadziej. Im ciemniejszy kolor, tym większe odchylenie, zwykle będące zwykłym wahaniem.'
+    : 'Liczba w komórce to ile losowań minęło od jej ostatniego wystąpienia. Średnio liczba pada raz na '+dec(N/k,1)+' losowań. Długa przerwa nie zwiększa szansy w następnym losowaniu.';
+  const idx=[]; for(let i=1;i<=N;i++) idx.push(i);
+  const hot=idx.slice().sort(function(a,b){ return st.cnt[b]-st.cnt[a]||a-b; }).slice(0,6);
+  const cold=idx.slice().sort(function(a,b){ return st.gap[b]-st.gap[a]||a-b; }).slice(0,6);
+  const pr=[]; for(let x=1;x<=N;x++) for(let y=x+1;y<=N;y++) pr.push([x,y,st.pairs[x*(N+1)+y]]);
+  pr.sort(function(a,b){ return b[2]-a[2]; });
+  const pExp=st.n*k*(k-1)/(N*(N-1));
+  let lists='';
+  lists+=listCard('Najczęstsze liczby',hot.map(function(x){ const d=Math.round((st.cnt[x]/st.exp-1)*100); return [pad(x),st.cnt[x]+'× ('+(d>=0?'+':'')+d+'%)']; }),'Różnica względem średniej.');
+  lists+=listCard('Najdłuższa przerwa',cold.map(function(x){ return [pad(x),st.gap[x]+' losowań']; }));
+  lists+=listCard('Najczęstsze pary',pr.slice(0,5).map(function(p){ return [pad(p[0])+' + '+pad(p[1]),p[2]+'×']; }),'Przeciętna para pada '+dec(pExp,1)+' razy.');
+  if(g.e){
+    const ei=[]; for(let i=1;i<=g.m;i++) ei.push(i);
+    const eh=ei.slice().sort(function(a,b){ return st.ecnt[b]-st.ecnt[a]||a-b; }).slice(0,4);
+    lists+=listCard('Najczęstsze liczby Euro',eh.map(function(x){ return [pad(x),st.ecnt[x]+'×']; }));
+  }
+  $('lists').innerHTML=lists;
+
+  let chiTxt;
+  if(st.exp<5) chiTxt='Za mało losowań, żeby ocenić równomierność (potrzeba średnio co najmniej 5 wystąpień na liczbę).';
+  else if(st.p>0.05) chiTxt='Rozkład nie odbiega od równomiernego. Różnice w częstościach to zwykłe losowe wahania.';
+  else chiTxt='Test sygnalizuje odchylenie od równomiernego rozkładu. Sprawdź, czy dane są kompletne i poprawnie wczytane. Przy wielu testach zdarzają się też fałszywe alarmy.';
+  $('chiBox').innerHTML='<h3 style="margin-top:0">Czy liczby wypadają równo?</h3><p class="mono">χ² = '+dec(st.chi,1)+', stopnie swobody '+(N-1)+', p = '+dec(st.p,3)+'</p><p>'+chiTxt+'</p>';
+
+  let rows='';
+  for(let j=0;j<=k;j++){
+    const O=Math.ceil(N/2), pe=comb(O,j)*comb(N-O,k-j)/comb(N,k), po=st.n?st.oddDist[j]/st.n:0;
+    rows+='<tr><th scope="row">'+j+' nieparzyst'+(j===1?'a':'ych')+'</th><td class="num">'+dec(po*100,1)+'%</td><td class="num">'+dec(pe*100,1)+'%</td></tr>';
+  }
+  const tMean=k*(N+1)/2, tSd=Math.sqrt(k*(N+1)*(N-k)/12);
+  $('profileBox').innerHTML='<h3 style="margin-top:0">Profil typowego losowania</h3><div class="tbl-wrap"><table><thead><tr><th>Układ liczb</th><th class="num">W historii</th><th class="num">Oczekiwane</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="hint">Suma liczb w losowaniu: średnio '+dec(st.sumMean,1)+' (oczekiwane '+dec(tMean,1)+'), odchylenie standardowe '+dec(st.sumSd,1)+' (oczekiwane '+dec(tSd,1)+'). Strategia „zbalansowana” trzyma się środka tych rozkładów.</p>';
+}
+
+/* ---------- test strategii ---------- */
+function runBt(){
+  const g=GAMES[S.game], D=ensure(S.game).draws, out=$('btOut');
+  if(D.length<60){ out.innerHTML='<p class="warn">Za mało losowań do testu. Potrzeba co najmniej 60, a wczytano '+D.length+'.</p>'; return; }
+  const tn=clamp(parseInt($('btN').value,10)||300,20,Math.min(D.length-30,3000));
+  const bp=clamp(parseInt($('btBets').value,10)||5,1,20);
+  $('btN').value=tn; $('btBets').value=bp;
+  S.btRun+=1;
+  const r=backtest(D,g,tn,bp,1000+S.btRun);
+  let rows='', maxZ=0, maxKey='';
+  r.keys.forEach(function(key){
+    const x=r.res[key], avg=x.hits/r.bets, z=(avg-r.exp)/r.se, share=x.ge3/r.bets;
+    if(Math.abs(z)>Math.abs(maxZ)){ maxZ=z; maxKey=key; }
+    const w=clamp(avg/(r.exp*2)*100,0,100);
+    rows+='<tr><th scope="row">'+LABELS[key]+'</th><td class="num">'+dec(avg,3)+'<div class="meter" aria-hidden="true"><span style="width:'+w.toFixed(0)+'%"></span><i></i></div></td><td class="num">'+dec(share*100,2)+'%</td><td class="num">'+(z>=0?'+':'')+dec(z,1)+'</td><td><span class="tag '+(Math.abs(z)>=2.5?'flag':'ok')+'">'+(Math.abs(z)>=2.5?'odchylenie':'w normie')+'</span></td></tr>';
+  });
+  rows+='<tr><th scope="row">Los (wartość oczekiwana)</th><td class="num">'+dec(r.exp,3)+'</td><td class="num">'+dec(r.p3*100,2)+'%</td><td class="num">0,0</td><td></td></tr>';
+  let verdict;
+  if(Math.abs(maxZ)<2.5) verdict='Żadna strategia nie odróżnia się od losu. Wszystkie wyniki mieszczą się w granicach zwykłych wahań, a największe odchylenie to '+(maxZ>=0?'+':'')+dec(maxZ,1)+' błędu standardowego ('+LABELS[maxKey]+'). Historia wyników nie pozwoliła przewidzieć kolejnego losowania.';
+  else verdict='Strategia „'+LABELS[maxKey]+'” odbiega od losu o '+(maxZ>=0?'+':'')+dec(maxZ,1)+' błędu standardowego. Sprawdzamy sześć strategii naraz, więc jedno większe wychylenie zdarza się samo z siebie. Uruchom test ponownie i wydłuż okres, zanim uznasz to za wzór.';
+  out.innerHTML='<p class="hint">Przetestowano '+fmt.format(r.tested)+' losowań po '+bp+' '+plZak(bp)+' na strategię ('+fmt.format(r.bets)+' zakładów każda). Liczone są trafienia liczb podstawowych.</p>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Strategia</th><th class="num">Śr. trafień</th><th class="num">3+ trafienia</th><th class="num">Różnica od losu</th><th>Ocena</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<p class="hint">Kreska pod średnią to wartość oczekiwana dla losu. Różnica od losu jest podana w błędach standardowych, a ocena „odchylenie” pojawia się od 2,5.</p>'
+    +'<p class="verdict">'+verdict+'</p>';
+}
+
+/* ---------- start ---------- */
+buildGameTabs();
+tabKeys($('toolTabs'));
+$('tab-gen').addEventListener('click',function(){ showTab('gen'); });
+$('tab-stats').addEventListener('click',function(){ showTab('stats'); });
+$('tab-bt').addEventListener('click',function(){ showTab('bt'); });
+$('toggleImport').addEventListener('click',function(){
+  const box=$('importBox'), open=box.hidden;
+  box.hidden=!open; this.setAttribute('aria-expanded',open?'true':'false'); this.textContent=open?'Zwiń':'Wgraj wyniki';
+});
+$('genBtn').addEventListener('click',generate);
+$('strategy').addEventListener('change',function(){ $('stratHint').textContent=HINTS[this.value]; });
+$('copyBtn').addEventListener('click',copyCoupons);
+$('metric').addEventListener('change',renderStats);
+$('win').addEventListener('change',renderStats);
+$('btRun').addEventListener('click',runBt);
+$('loadBtn').addEventListener('click',function(){ doImport($('paste').value); });
+$('file').addEventListener('change',function(){
+  const f=this.files&&this.files[0]; if(!f) return;
+  const rd=new FileReader(), self=this;
+  rd.onload=function(){ doImport(String(rd.result||'')); self.value=''; };
+  rd.onerror=function(){ $('importMsg').className='hint warn'; $('importMsg').textContent='Nie udało się odczytać pliku.'; };
+  rd.readAsText(f);
+});
+$('resetBtn').addEventListener('click',function(){
+  const key=S.game; store.del(key); delete S.data[key];
+  $('importMsg').className='hint'; $('importMsg').textContent='Usunięto wgrane dane.';
+  loadGame(key).then(function(){ if(S.game===key) refreshAll(); });
+  refreshAll();
+});
+setGame('lotto');
+})();
+</script>
+
+</body>
+</html>

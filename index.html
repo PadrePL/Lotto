@@ -128,6 +128,15 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);font-variant-numeric
 .rank div{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:.9rem;min-width:0}
 .rank small{color:var(--muted);font-size:.8rem;overflow-wrap:anywhere}
 .empty{padding:1rem 0}
+.recent{display:grid;gap:6px}
+.recent button{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:4px 12px;align-items:center;text-align:left;font:inherit;color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:16px;padding:.5rem .8rem;cursor:pointer}
+.recent button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.recent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.recent .when{font-family:var(--font-mono);font-size:.85rem;color:var(--muted)}
+.recent .when b{display:block;color:var(--fg);font-weight:600}
+.recent .comp{grid-column:2;font-size:.82rem;color:var(--muted)}
+.recent .ball.sm{width:1.9rem;height:1.9rem;font-size:.8rem}
+@media (max-width:480px){.recent button{grid-template-columns:1fr}.recent .comp{grid-column:1}}
 @media (max-width:480px){
   .card{padding:1rem}
   .ball{width:2.4rem;height:2.4rem}
@@ -155,6 +164,10 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);font-variant-numeric
       <div>
         <h2 id="dataH">Wyniki</h2>
         <p id="dataInfo">Wczytuję wyniki…</p>
+        <div class="field" id="pickField" hidden style="max-width:16rem;margin-top:.5rem">
+          <label for="pickSel">Liczb w zakładzie</label>
+          <select id="pickSel"></select>
+        </div>
       </div>
       <div id="lastDraw"></div>
     </div>
@@ -195,6 +208,7 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);font-variant-numeric
           <option value="200">Ostatnie 200</option>
           <option value="100">Ostatnie 100</option>
           <option value="50">Ostatnie 50</option>
+          <option value="10">Ostatnie 10</option>
         </select>
       </div>
       <button id="genBtn" class="btn primary">Generuj numery</button>
@@ -262,6 +276,7 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);font-variant-numeric
           <option value="500">Ostatnie 500</option>
           <option value="200">Ostatnie 200</option>
           <option value="100">Ostatnie 100</option>
+          <option value="10">Ostatnie 10</option>
         </select>
       </div>
     </div>
@@ -300,7 +315,8 @@ const GAMES={
   lotto:{key:'lotto',file:'data/lotto.csv',name:'Lotto',label:'Lotto 6/49',n:49,k:6,m:0,e:0,cols:7,maxBets:8,from:''},
   plus:{key:'plus',file:'data/lotto-plus.csv',name:'Lotto Plus',label:'Lotto Plus 6/49',n:49,k:6,m:0,e:0,cols:7,maxBets:8,from:''},
   mini:{key:'mini',file:'data/mini-lotto.csv',name:'Mini Lotto',label:'Mini Lotto 5/42',n:42,k:5,m:0,e:0,cols:7,maxBets:8,from:''},
-  euro:{key:'euro',file:'data/eurojackpot.csv',name:'Eurojackpot',label:'Eurojackpot 5/50 + 2/12',n:50,k:5,m:12,e:2,cols:10,maxBets:6,from:'2022-03-25'}
+  euro:{key:'euro',file:'data/eurojackpot.csv',name:'Eurojackpot',label:'Eurojackpot 5/50 + 2/12',n:50,k:5,m:12,e:2,cols:10,maxBets:6,from:'2022-03-25'},
+  keno:{key:'keno',file:'data/keno.csv',name:'Keno',label:'Keno 20/70',n:70,k:20,m:0,e:0,cols:10,maxBets:8,from:'',pickMin:1,pickMax:10,pickDef:10,live:true}
 };
 const FEAT=[
   {id:'freq',label:'Częstość w całej historii'},
@@ -317,7 +333,9 @@ const FEAT=[
 const STRATS=['model','hot','hot30','cold','overdue','weekday','pattern'];
 
 function comb(n,r){ if(r<0||r>n) return 0; let x=1; for(let i=1;i<=r;i++){ x=x*(n-r+i)/i; } return Math.round(x); }
-function hyperP(j,N,k){ return comb(k,j)*comb(N-k,k-j)/comb(N,k); }
+function hyperP(j,N,k,p){ if(p==null) p=k; return comb(k,j)*comb(N-k,p-j)/comb(N,p); }
+function pAtLeast(T,N,k,p){ let s=0; for(let j=T;j<=Math.min(k,p);j++) s+=hyperP(j,N,k,p); return s; }
+function thrOf(p){ return Math.max(1,Math.ceil(p/2)); }
 function gammaln(x){
   const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
   let y=x, tmp=x+5.5; tmp-=(x+0.5)*Math.log(tmp); let ser=1.000000000190015;
@@ -338,7 +356,7 @@ function parseResults(text,g,fromDate){
   for(const raw of String(text).split(/\r?\n/)){
     const line=raw.trim();
     if(!line||!/\d/.test(line)) continue;
-    let date=null;
+    let date=null, time='';
     const iso=line.match(/(\d{4})-(\d{2})-(\d{2})/);
     const pl=iso?null:line.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
     if(iso) date=iso[0];
@@ -347,6 +365,7 @@ function parseResults(text,g,fromDate){
     if(line.indexOf(';')>=0&&iso){
       const f=line.split(';').map(s=>s.trim());
       const di=f.findIndex(s=>/^\d{4}-\d{2}-\d{2}$/.test(s));
+      time=((f[di+1]||'').match(/^\d{1,2}:\d{2}/)||[''])[0];
       ints=((f[di+2]||'').match(/\d+/g)||[]).map(Number);
       if(g.e) ints=ints.concat(((f[di+3]||'').match(/\d+/g)||[]).map(Number));
     } else {
@@ -361,13 +380,13 @@ function parseResults(text,g,fromDate){
     if(!validSet(nums,g.n)||(g.e&&!validSet(extra,g.m))){ skipped++; continue; }
     if(fromDate&&date&&date<fromDate){ older++; continue; }
     nums.sort((a,b)=>a-b); extra.sort((a,b)=>a-b);
-    rows.push({date:date,nums:nums,extra:extra});
+    rows.push({date:date,time:time,nums:nums,extra:extra});
   }
   const allDated=rows.length>0&&rows.every(r=>r.date);
-  if(allDated) rows.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  if(allDated) rows.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.time&&b.time&&a.time!==b.time?(a.time.padStart(5,'0')<b.time.padStart(5,'0')?-1:1):0));
   const seen=new Set(), draws=[];
   for(const r of rows){
-    const key=(r.date||'')+'|'+r.nums.join(',')+'|'+r.extra.join(',');
+    const key=(r.date||'')+'|'+r.time+'|'+r.nums.join(',')+'|'+r.extra.join(',');
     if(seen.has(key)) continue; seen.add(key); draws.push(r);
   }
   return {draws:draws,skipped:skipped,older:older,allDated:allDated};
@@ -427,6 +446,13 @@ function defaultComp(N,k){
   for(let a=0;a<=k;a++) for(let b=0;a+b<=k;b++){ const key=a+'-'+b+'-'+(k-a-b), p=compProb(N,k,gs,key); if(p>bp){ bp=p; best=key; } }
   return best;
 }
+function scaleComp(key,P){
+  const c=key.split('-').map(Number), k=c[0]+c[1]+c[2]; if(P===k) return key;
+  const raw=c.map(v=>v*P/k), fl=raw.map(Math.floor); let rest=P-fl[0]-fl[1]-fl[2];
+  const ord=[0,1,2].sort((a,b)=>(raw[b]-fl[b])-(raw[a]-fl[a])||a-b);
+  for(let i=0;rest>0;i++,rest--) fl[ord[i%3]]++;
+  return fl.join('-');
+}
 function patternBet(freqOrder,gs,key,b){
   const c=key.split('-').map(Number);
   const G=[freqOrder.slice(0,gs[0]),freqOrder.slice(gs[0],gs[0]+gs[1]),freqOrder.slice(gs[0]+gs[1])];
@@ -446,9 +472,9 @@ function learn(draws,N,k,field,opt){
   opt=opt||{};
   const n=draws.length, F=FEAT.length, p0=k/N, gs=groupSizes(N);
   const warm=Math.min(30,Math.max(5,Math.floor(n/4)));
-  const evalN=opt.evalN||0, betsPer=Math.max(1,opt.bets||1);
+  const evalN=opt.evalN||0, betsPer=Math.max(1,opt.bets||1), P=opt.pick||k, T=thrOf(P);
   const evalStart=evalN?Math.max(warm,n-evalN):n;
-  const ev={}; STRATS.forEach(s=>{ ev[s]={hits:0,ge3:0,best:0,dist:new Array(k+1).fill(0)}; });
+  const ev={}; STRATS.forEach(s=>{ ev[s]={hits:0,ge3:0,best:0,dist:new Array(P+1).fill(0)}; });
   const cnt=new Float64Array(N+1), last=new Int32Array(N+1).fill(-1);
   const wcnt=[0,1,2,3,4,5,6].map(()=>new Float64Array(N+1)), wtot=new Float64Array(7);
   const WIN=[100,30,10], rc=WIN.map(()=>new Float64Array(N+1));
@@ -519,9 +545,9 @@ function learn(draws,N,k,field,opt){
         for(const s of STRATS){
           const r=ev[s];
           for(let bb=0;bb<betsPer;bb++){
-            const bet=s==='pattern'?patternBet(fo,gs,bestKey||defKey,bb):block(orders[s],k,bb);
+            const bet=s==='pattern'?patternBet(fo,gs,scaleComp(bestKey||defKey,P),bb):block(orders[s],P,bb);
             let h=0; for(const x of bet) if(act[x]) h++;
-            r.hits+=h; r.dist[h]++; if(h>=3) r.ge3++; if(h>r.best) r.best=h;
+            r.hits+=h; r.dist[h]++; if(h>=T) r.ge3++; if(h>r.best) r.best=h;
           }
         }
         for(let x=1;x<=N;x++){ const p=Math.min(1-1e-9,Math.max(1e-9,pr[x])); lossM+=act[x]?-Math.log(p):-Math.log(1-p); lossB+=act[x]?-Math.log(p0):-Math.log(1-p0); }
@@ -546,7 +572,7 @@ function learn(draws,N,k,field,opt){
   const probs=[0]; for(let x=1;x<=N;x++) probs.push(pr[x]*k/s);
   const contrib=[]; for(let x=0;x<=N;x++){ const row=[]; if(x>0) for(let j=0;j<F;j++) row.push(w[j]*f[x*F+j]); contrib.push(row); }
   return {w:Array.from(w),b:b,probs:probs,contrib:contrib,ev:ev,tested:n-evalStart,betsPer:betsPer,comp:comp,compN:compN,bestKey:bestKey||defKey,gs:gs,
-    lossM:lossM,lossB:lossB,lossC:lossC,warm:warm,N:N,k:k,freqOrder:rankOrder(N,cnt,null)};
+    lossM:lossM,lossB:lossB,lossC:lossC,warm:warm,N:N,k:k,P:P,T:T,freqOrder:rankOrder(N,cnt,null)};
 }
 
 function classifyField(draws,idx,field,N,k){
@@ -595,7 +621,9 @@ function plZak(n){ if(n===1) return 'zakład'; const a=n%10,b=n%100; return (a>=
 function plDate(iso){ if(!iso) return '—'; const p=iso.split('-'); return p[2]+'.'+p[1]+'.'+p[0]; }
 function ballsHTML(nums,cls){ return nums.map(x=>'<span class="ball'+(cls?' '+cls:'')+'">'+pad(x)+'</span>').join(''); }
 
-const S={game:'lotto',tab:'gen',data:{},eng:{},last:null,anaIdx:{},wd:{}};
+const S={game:'lotto',tab:'gen',data:{},eng:{},last:null,anaIdx:{},wd:{},pick:{}};
+function pickOf(g){ return g.pickMax?(S.pick[g.key]||g.pickDef):g.k; }
+function whenOf(d){ return plDate(d.date)+(d.time?' '+d.time:''); }
 const D=()=>{ const d=S.data[S.game]; return d&&d.status==='ok'?d.draws:[]; };
 const G=()=>GAMES[S.game];
 
@@ -612,12 +640,13 @@ async function loadGame(key){
   S.data[key]={status:'missing',draws:[]};
 }
 
+function engReady(key){ const e=S.eng[key]; return !!(e&&e.pick===pickOf(GAMES[key])); }
 function engine(key){
-  if(S.eng[key]) return S.eng[key];
-  const g=GAMES[key], draws=S.data[key].draws, nd=nextDrawDate(draws,new Date());
-  const main=learn(draws,g.n,g.k,'nums',{evalN:500,bets:1,nextWd:nd.wd});
+  if(engReady(key)) return S.eng[key];
+  const g=GAMES[key], draws=S.data[key].draws, nd=nextDrawDate(draws,new Date()), P=pickOf(g);
+  const main=learn(draws,g.n,g.k,'nums',{evalN:500,bets:1,nextWd:nd.wd,pick:P});
   const extra=g.e?learn(draws,g.m,g.e,'extra',{evalN:0,nextWd:nd.wd}):null;
-  S.eng[key]={main:main,extra:extra,next:nd};
+  S.eng[key]={main:main,extra:extra,next:nd,pick:P};
   return S.eng[key];
 }
 
@@ -647,6 +676,8 @@ function setGame(key){
   Object.keys(GAMES).forEach(function(k){ const b=$('game-'+k), on=k===key; b.setAttribute('aria-selected',on?'true':'false'); b.tabIndex=on?0:-1; });
   $('nBets').max=g.maxBets; if(+$('nBets').value>g.maxBets) $('nBets').value=g.maxBets;
   $('extraWrap').hidden=!g.e;
+  $('pickField').hidden=!g.pickMax;
+  if(g.pickMax){ let o=''; for(let p=g.pickMin;p<=g.pickMax;p++) o+='<option value="'+p+'"'+(p===pickOf(g)?' selected':'')+'>'+p+'</option>'; $('pickSel').innerHTML=o; }
   if(!S.data[key]){
     loadGame(key).then(function(){ if(S.game===key) refreshAll(); });
   }
@@ -677,7 +708,7 @@ function renderTab(){
     return;
   }
   const needsEngine=(t==='model'||t==='ana'||(t==='gen'&&($('strategy').value==='model'||$('strategy').value==='pattern')));
-  if(needsEngine&&!S.eng[S.game]){
+  if(needsEngine&&!engReady(S.game)){
     const out={gen:'coupons',ana:'anaOut',model:'modelOut'}[t];
     $(out).innerHTML='<p class="hint empty">Model uczy się na '+fmt.format(D().length)+' losowaniach…</p>';
     const key=S.game;
@@ -705,8 +736,8 @@ function renderData(){
     return;
   }
   const first=draws[0], last=draws[draws.length-1], nd=nextDrawDate(draws,new Date());
-  $('dataInfo').innerHTML='<span class="pill ok">Automatycznie</span>'+fmt.format(draws.length)+' losowań od '+plDate(first.date)+' do '+plDate(last.date)+'.'+(nd.iso?' Najbliższe losowanie: '+WD[nd.wd]+' '+plDate(nd.iso)+'.':'');
-  $('lastDraw').innerHTML='<div class="hint" style="margin-bottom:4px">Ostatnie losowanie, '+plDate(last.date)+'</div><div class="balls">'+ballsHTML(last.nums,'sm')+(last.extra.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(last.extra,'sm euro'):'')+'</div>';
+  $('dataInfo').innerHTML='<span class="pill ok">Automatycznie</span>'+fmt.format(draws.length)+' losowań od '+plDate(first.date)+' do '+whenOf(last)+'.'+(g.live?' Losowania co 4 minuty, plik odświeża się dwa razy dziennie.':(nd.iso?' Najbliższe losowanie: '+WD[nd.wd]+' '+plDate(nd.iso)+'.':''));
+  $('lastDraw').innerHTML='<div class="hint" style="margin-bottom:4px">Ostatnie losowanie, '+whenOf(last)+'</div><div class="balls">'+ballsHTML(last.nums,'sm')+(last.extra.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(last.extra,'sm euro'):'')+'</div>';
 }
 
 /* ---------- generator ---------- */
@@ -742,14 +773,15 @@ function genRanking(key,g,draws,W){
   return {order:order,val:val,eorder:eorder,eval:eval_};
 }
 function randomPick(N,k){ const s=new Set(); while(s.size<k) s.add(1+Math.floor(Math.random()*N)); return Array.from(s).sort((a,b)=>a-b); }
-function histCheck(nums,draws){ const set=new Set(nums); let c3=0,best=0; for(const d of draws){ let h=0; for(const x of d.nums) if(set.has(x)) h++; if(h>=3) c3++; if(h>best) best=h; } return {c3:c3,best:best}; }
+function histCheck(nums,draws){ const set=new Set(nums); let nb=0,best=0; for(const d of draws){ let h=0; for(const x of d.nums) if(set.has(x)) h++; if(h>best){ best=h; nb=1; } else if(h===best) nb++; } return {nb:nb,best:best}; }
 
 function renderGen(){
   const g=G(), draws=D(), key=$('strategy').value;
   const nc=clampN(parseInt($('nCoupons').value,10)||1,1,10), nb=clampN(parseInt($('nBets').value,10)||1,1,g.maxBets);
   $('nCoupons').value=nc; $('nBets').value=nb;
   $('winField').hidden=!(key==='hot'||key==='cold');
-  $('stratHint').textContent=HINTS[key].replace('{k}',g.k);
+  const P=pickOf(g);
+  $('stratHint').textContent=HINTS[key].replace('{k}',P);
   const W=parseInt($('genWin').value,10)||0;
   const R=key==='random'?null:genRanking(key,g,draws,W);
   const en=key==='pattern'?engine(S.game):null;
@@ -758,26 +790,26 @@ function renderGen(){
     const bets=[];
     for(let b=0;b<nb;b++,gi++){
       let nums,extra=[],ranks='';
-      if(key==='random'){ nums=randomPick(g.n,g.k); if(g.e) extra=randomPick(g.m,g.e); }
-      else if(key==='pattern'){ nums=patternBet(en.main.freqOrder,en.main.gs,en.main.bestKey,gi); if(g.e) extra=block(R.eorder,g.e,gi); ranks='Układ: '+compText(en.main.bestKey); }
+      if(key==='random'){ nums=randomPick(g.n,P); if(g.e) extra=randomPick(g.m,g.e); }
+      else if(key==='pattern'){ const ck=scaleComp(en.main.bestKey,P); nums=patternBet(en.main.freqOrder,en.main.gs,ck,gi); if(g.e) extra=block(R.eorder,g.e,gi); ranks='Układ: '+compText(ck); }
       else {
-        nums=block(R.order,g.k,gi); if(g.e) extra=block(R.eorder,g.e,gi);
-        const a=gi*g.k+1, z=(gi+1)*g.k; if(z>g.n) wrapped=true; ranks='Miejsca '+a+'–'+z+' w rankingu';
+        nums=block(R.order,P,gi); if(g.e) extra=block(R.eorder,g.e,gi);
+        const a=gi*P+1, z=(gi+1)*P; if(z>g.n) wrapped=true; ranks=P===1?'Miejsce '+a+' w rankingu':'Miejsca '+a+'–'+z+' w rankingu';
       }
       bets.push({nums:nums,extra:extra,ranks:ranks,hist:histCheck(nums,draws)});
     }
     coupons.push(bets);
   }
   S.last=coupons;
-  const total=comb(g.n,g.k)*(g.e?comb(g.m,g.e):1), all=nc*nb;
-  $('oddsLine').textContent='Szansa na główną wygraną: 1 do '+fmt.format(Math.round(total/all))+' przy '+all+(all===1?' zakładzie':' zakładach')+'. Pojedynczy zakład: 1 do '+fmt.format(total)+'.';
+  const total=comb(g.n,P)/comb(g.k,P)*(g.e?comb(g.m,g.e):1), all=nc*nb;
+  $('oddsLine').textContent=(g.pickMax?'Szansa na trafienie wszystkich '+P+' liczb':'Szansa na główną wygraną')+': 1 do '+fmt.format(Math.round(total/all))+' przy '+all+(all===1?' zakładzie':' zakładach')+'. Pojedynczy zakład: 1 do '+fmt.format(Math.round(total))+'.';
   let html='';
   coupons.forEach(function(bets,ci){
     html+='<article class="ticket"><header><span>Kupon '+(ci+1)+'</span><span>'+bets.length+' '+plZak(bets.length)+'</span></header>';
     bets.forEach(function(b,bi){
       html+='<div class="bet"><span class="letter">'+String.fromCharCode(65+bi)+'</span><div class="balls">'+ballsHTML(b.nums);
       if(b.extra.length) html+='<span class="sep" aria-hidden="true"></span>'+ballsHTML(b.extra,'euro');
-      html+='</div><span class="hist">'+(b.ranks?b.ranks+' · ':'')+'w historii '+fmt.format(b.hist.c3)+'× co najmniej 3 trafienia, max '+b.hist.best+'</span></div>';
+      html+='</div><span class="hist">'+(b.ranks?b.ranks+' · ':'')+'w historii najwięcej '+b.hist.best+' z '+b.nums.length+' trafień ('+fmt.format(b.hist.nb)+'×)</span></div>';
     });
     html+='</article>';
   });
@@ -797,7 +829,7 @@ function renderGen(){
   }
   box.hidden=false;
   const top=R.order.slice(0,Math.min(g.n,24));
-  box.innerHTML='<h3>Ranking: '+LABELS[key]+'</h3><div class="rank">'+top.map((x,i)=>'<div><span class="mono" style="color:var(--muted);width:1.6rem;text-align:right">'+(i+1)+'.</span><span class="ball sm">'+pad(x)+'</span><small>'+R.val(x)+'</small></div>').join('')+'</div>'
+  box.innerHTML='<h3>Ranking: '+LABELS[key]+(W&&(key==='hot'||key==='cold')?' (ostatnie '+W+')':'')+'</h3><div class="rank">'+top.map((x,i)=>'<div><span class="mono" style="color:var(--muted);width:1.6rem;text-align:right">'+(i+1)+'.</span><span class="ball sm">'+pad(x)+'</span><small>'+R.val(x)+'</small></div>').join('')+'</div>'
     +(g.e?'<h3 style="margin-top:.8rem">Liczby Euro</h3><div class="rank">'+R.eorder.map((x,i)=>'<div><span class="mono" style="color:var(--muted);width:1.6rem;text-align:right">'+(i+1)+'.</span><span class="ball sm euro">'+pad(x)+'</span><small>'+R.eval(x)+'</small></div>').join('')+'</div>':'');
 }
 function couponsText(){
@@ -834,7 +866,8 @@ function renderAna(){
   $('anaPrev').disabled=idx<=1; $('anaNext').disabled=idx>=n-1;
   const C=classifyField(draws,idx,'nums',g.n,g.k), CE=g.e?classifyField(draws,idx,'extra',g.m,g.e):null;
   const wd=wdOf(d.date);
-  let h='<div class="card"><h2>Losowanie '+plDate(d.date)+(wd>=0?', '+WD[wd]:'')+'</h2>'
+  let h=recentHTML(g,draws,idx);
+  h+='<div class="card"><h2>Losowanie '+whenOf(d)+(wd>=0?', '+WD[wd]:'')+'</h2>'
     +'<p class="hint">Każdą wylosowaną liczbę porównuję z '+fmt.format(idx)+' wcześniejszymi losowaniami (tylko tym, co było wiadomo przed tym dniem).</p>'
     +'<div class="legend"><span><i class="dot g0"></i>Najczęstsze ('+C.gs[0]+' liczb)</span><span><i class="dot g1"></i>Średnie ('+C.gs[1]+')</span><span><i class="dot g2"></i>Najrzadsze ('+C.gs[2]+')</span></div>'
     +'<div class="balls big-balls" style="margin:.6rem 0">'+C.items.map(it=>'<span class="ball g'+it.group+'" title="'+GROUPS[it.group]+'">'+pad(it.x)+'</span>').join('')
@@ -852,6 +885,17 @@ function renderAna(){
   $('anaOut').innerHTML=h;
 }
 
+function recentHTML(g,draws,sel){
+  const n=draws.length; let h='<div class="card"><h3>10 ostatnich losowań</h3><p class="hint" style="margin-top:0">Kliknij losowanie, żeby zobaczyć jego analizę.</p><div class="recent">';
+  for(let i=n-1;i>=Math.max(1,n-10);i--){
+    const d=draws[i], C=classifyField(draws,i,'nums',g.n,g.k), wd=wdOf(d.date);
+    h+='<button type="button" data-idx="'+i+'" aria-pressed="'+(i===sel?'true':'false')+'"><span class="when"><b>'+whenOf(d)+'</b>'+(wd>=0?WD[wd]:'')+'</span><span class="balls">'
+      +C.items.map(it=>'<span class="ball sm g'+it.group+'">'+pad(it.x)+'</span>').join('')
+      +(d.extra.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(d.extra,'sm euro'):'')+'</span><span class="comp">Układ: '+compText(C.comp)+'</span></button>';
+  }
+  return h+'</div></div>';
+}
+
 /* ---------- dzień tygodnia ---------- */
 function renderWd(){
   const g=G(), all=D(), W=parseInt($('wdWin').value,10)||0, draws=W?all.slice(-W):all;
@@ -862,15 +906,16 @@ function renderWd(){
   const order=[1,2,3,4,5,6,0];
   $('wdSel').innerHTML=order.filter(w=>per[w]>0).map(w=>'<option value="'+w+'"'+(w===sel?' selected':'')+'>'+WD[w]+' ('+fmt.format(per[w])+' losowań)'+(w===nd.wd?' – najbliższe losowanie':'')+'</option>').join('');
   const wc=weekdayCounts(draws,sel,'nums',g.n), st=computeStats(draws,g);
-  const ord=rankOrder(g.n,wc.cnt,st.cnt), top=ord.slice(0,g.k).sort((a,b)=>a-b);
+  const P=pickOf(g), T=thrOf(P);
+  const ord=rankOrder(g.n,wc.cnt,st.cnt), top=ord.slice(0,P).sort((a,b)=>a-b);
   let etop=[], wce=null, eord=null;
   if(g.e){ wce=weekdayCounts(draws,sel,'extra',g.m); eord=rankOrder(g.m,wce.cnt,st.ecnt); etop=eord.slice(0,g.e).sort((a,b)=>a-b); }
   const set=new Set(top); let c3=0,best=0;
-  draws.forEach(d=>{ if(wdOf(d.date)!==sel) return; let h=0; d.nums.forEach(x=>{ if(set.has(x)) h++; }); if(h>=3) c3++; if(h>best) best=h; });
+  draws.forEach(d=>{ if(wdOf(d.date)!==sel) return; let h=0; d.nums.forEach(x=>{ if(set.has(x)) h++; }); if(h>=T) c3++; if(h>best) best=h; });
   const exp=wc.tot*g.k/g.n;
   let h='<div class="card"><h2>Najczęstszy zestaw: '+WDA[sel]+'</h2>'
     +'<div class="balls big-balls" style="margin:.7rem 0">'+ballsHTML(top)+(etop.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(etop,'euro'):'')+'</div>'
-    +'<div class="kv"><span>Losowań '+WDP[sel]+': <b>'+fmt.format(wc.tot)+'</b></span><span>Co najmniej 3 z tych liczb padły: <b>'+fmt.format(c3)+'×</b></span><span>Najwięcej naraz: <b>'+best+'</b></span></div>'
+    +'<div class="kv"><span>Losowań '+WDP[sel]+': <b>'+fmt.format(wc.tot)+'</b></span><span>Co najmniej '+T+' z tych liczb padły: <b>'+fmt.format(c3)+'×</b></span><span>Najwięcej naraz: <b>'+best+'</b></span></div>'
     +'<p class="hint">Każda liczba z losowania jest liczbą wygrywającą, więc liczę wszystkie losowania z tego dnia. Pliki z wynikami nie mówią, czy ktoś trafił główną wygraną.</p></div>';
   h+='<div class="card"><h3>Ranking liczb '+WDP[sel]+'</h3><div class="tbl-wrap"><table><thead><tr><th>Miejsce</th><th>Liczba</th><th class="num">Ile razy</th><th class="num">Na tle średniej</th><th class="num">Miejsce ogólnie</th></tr></thead><tbody>';
   const genPos=new Array(g.n+1); rankOrder(g.n,st.cnt,null).forEach((x,i)=>{ genPos[x]=i+1; });
@@ -885,10 +930,11 @@ function renderWd(){
 /* ---------- model ---------- */
 function renderModel(){
   const g=G(), en=engine(S.game), m=en.main, nd=en.next;
-  const ord=rankOrder(g.n,m.probs,null), top=ord.slice(0,g.k).sort((a,b)=>a-b);
+  const P=m.P, T=m.T;
+  const ord=rankOrder(g.n,m.probs,null), top=ord.slice(0,P).sort((a,b)=>a-b);
   const etop=g.e?rankOrder(g.m,en.extra.probs,null).slice(0,g.e).sort((a,b)=>a-b):[];
   const base=g.k/g.n;
-  let h='<div class="card"><h2>Typ modelu na '+(nd.iso?WD[nd.wd]+' '+plDate(nd.iso):'najbliższe losowanie')+'</h2>'
+  let h='<div class="card"><h2>Typ modelu na '+(!g.live&&nd.iso?WD[nd.wd]+' '+plDate(nd.iso):'najbliższe losowanie')+'</h2>'
     +'<div class="balls big-balls" style="margin:.7rem 0">'+ballsHTML(top)+(etop.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(etop,'euro'):'')+'</div>'
     +'<p class="hint">Model przeszedł przez '+fmt.format(D().length)+' losowań od najstarszego. Przy każdym najpierw wskazał liczby, znając tylko przeszłość, a potem poprawił swoje wagi na prawdziwym wyniku. Uczy się od nowa przy każdym otwarciu, więc każde nowe losowanie zmienia jego ocenę.</p></div>';
   const maxP=m.probs[ord[0]];
@@ -904,10 +950,10 @@ function renderModel(){
   h+='<div class="card"><h3>Czego model się nauczył</h3><p class="hint">Model sprawdza '+FEAT.length+' cech każdej liczby. Waga dodatnia znaczy, że cecha podnosi ocenę liczby, ujemna, że ją obniża.</p><div class="tbl-wrap"><table><thead><tr><th>Cecha</th><th class="num">Waga</th><th style="width:35%">Siła</th><th>Wpływ</th></tr></thead><tbody>'
     +wi.map(x=>'<tr><th scope="row">'+x.f.label+'</th><td class="num">'+(x.w>=0?'+':'')+dec(x.w,3)+'</td><td><div class="bar" aria-hidden="true"><span style="width:'+(Math.abs(x.w)/mw*100).toFixed(0)+'%"></span></div></td><td>'+(Math.abs(x.w)<0.005?'brak':(x.w>0?'podnosi':'obniża'))+'</td></tr>').join('')
     +'</tbody></table></div></div>';
-  const e=m.ev.model, eh=m.ev.hot, bets=m.tested*m.betsPer, expH=g.k*g.k/g.n;
-  let p3=0; for(let j=3;j<=g.k;j++) p3+=hyperP(j,g.n,g.k);
+  const e=m.ev.model, eh=m.ev.hot, bets=m.tested*m.betsPer, expH=P*g.k/g.n;
+  const p3=pAtLeast(T,g.n,g.k,P);
   const gain=m.lossC?(1-m.lossM/m.lossB)*100:0;
-  h+='<div class="card"><h3>Skuteczność na ostatnich '+fmt.format(m.tested)+' losowaniach</h3><div class="tbl-wrap"><table><thead><tr><th>Wybór</th><th class="num">Śr. trafień na zakład</th><th class="num">3+ trafienia</th><th class="num">Najwięcej</th></tr></thead><tbody>'
+  h+='<div class="card"><h3>Skuteczność na ostatnich '+fmt.format(m.tested)+' losowaniach</h3><div class="tbl-wrap"><table><thead><tr><th>Wybór</th><th class="num">Śr. trafień na zakład</th><th class="num">'+T+'+ trafień</th><th class="num">Najwięcej</th></tr></thead><tbody>'
     +'<tr><th scope="row">Model uczący się</th><td class="num">'+dec(e.hits/bets,3)+'</td><td class="num">'+fmt.format(e.ge3)+' ('+dec(e.ge3/bets*100,2)+'%)</td><td class="num">'+e.best+'</td></tr>'
     +'<tr><th scope="row">Najczęściej losowane</th><td class="num">'+dec(eh.hits/bets,3)+'</td><td class="num">'+fmt.format(eh.ge3)+' ('+dec(eh.ge3/bets*100,2)+'%)</td><td class="num">'+eh.best+'</td></tr>'
     +'<tr><th scope="row">Losowy wybór (średnio)</th><td class="num">'+dec(expH,3)+'</td><td class="num">'+dec(p3*100,2)+'%</td><td class="num">—</td></tr>'
@@ -982,10 +1028,11 @@ function renderBt(run){
   out.innerHTML='<p class="hint">Liczę…</p>';
   setTimeout(function(){
     const nd=nextDrawDate(draws,new Date());
-    const r=learn(draws,g.n,g.k,'nums',{evalN:tn,bets:bp,nextWd:nd.wd});
+    const P=pickOf(g), T=thrOf(P);
+    const r=learn(draws,g.n,g.k,'nums',{evalN:tn,bets:bp,nextWd:nd.wd,pick:P});
     S.btDone=true;
-    const bets=r.tested*bp, N=g.n, k=g.k, p=k/N, exp=k*p, se=Math.sqrt(k*p*(1-p)*(N-k)/(N-1)/bets);
-    let p3=0; for(let j=3;j<=k;j++) p3+=hyperP(j,N,k);
+    const bets=r.tested*bp, N=g.n, k=g.k, p=k/N, exp=P*p, se=Math.sqrt(P*p*(1-p)*(N-P)/(N-1)/bets);
+    const p3=pAtLeast(T,N,k,P);
     let rows='', best='', bestAvg=-1;
     STRATS.forEach(s=>{
       const x=r.ev[s], avg=x.hits/bets, z=(avg-exp)/se, w=clampN(avg/(exp*2)*100,0,100);
@@ -994,8 +1041,8 @@ function renderBt(run){
     });
     rows+='<tr><th scope="row">Losowy wybór (średnio)</th><td class="num">'+dec(exp,3)+'</td><td class="num">'+dec(p3*100,2)+'%</td><td class="num">—</td><td class="num">0,0</td><td></td></tr>';
     const zb=(bestAvg-exp)/se;
-    out.innerHTML='<p class="hint">Przetestowano '+fmt.format(r.tested)+' losowań po '+bp+' '+plZak(bp)+' na strategię ('+fmt.format(bets)+' zakładów każda).</p>'
-      +'<div class="tbl-wrap"><table><thead><tr><th>Strategia</th><th class="num">Śr. trafień</th><th class="num">3+ trafienia</th><th class="num">Najwięcej</th><th class="num">Różnica od losu</th><th>Ocena</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    out.innerHTML='<p class="hint">Przetestowano '+fmt.format(r.tested)+' losowań po '+bp+' '+plZak(bp)+(g.pickMax?' ('+P+' liczb w zakładzie)':'')+' na strategię ('+fmt.format(bets)+' zakładów każda).</p>'
+      +'<div class="tbl-wrap"><table><thead><tr><th>Strategia</th><th class="num">Śr. trafień</th><th class="num">'+T+'+ trafień</th><th class="num">Najwięcej</th><th class="num">Różnica od losu</th><th>Ocena</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
       +'<p class="hint">Kreska pod średnią to wynik losowego wyboru. Różnica od losu jest podana w błędach standardowych, a „odchylenie” pojawia się od 2,5.</p>'
       +'<p><strong>Najlepiej w tym okresie: '+LABELS[best]+'</strong>, średnio '+dec(bestAvg,3)+' trafienia na zakład wobec '+dec(exp,3)+' przy losowym wyborze ('+(zb>=0?'+':'')+dec(zb,1)+' błędu standardowego).</p>';
   },30);
@@ -1017,6 +1064,8 @@ $('btRun').addEventListener('click',()=>{ if(D().length) renderBt(true); else re
 $('anaPrev').addEventListener('click',()=>{ S.anaIdx[S.game]=(S.anaIdx[S.game]||1)-1; renderTab(); });
 $('anaNext').addEventListener('click',()=>{ S.anaIdx[S.game]=(S.anaIdx[S.game]||0)+1; renderTab(); });
 $('anaLast').addEventListener('click',()=>{ S.anaIdx[S.game]=null; renderTab(); });
+$('anaOut').addEventListener('click',function(e){ const b=e.target&&e.target.closest?e.target.closest('button[data-idx]'):null; if(!b) return; S.anaIdx[S.game]=parseInt(b.getAttribute('data-idx'),10); renderTab(); });
+$('pickSel').addEventListener('change',function(){ S.pick[S.game]=parseInt(this.value,10); S.btDone=false; renderTab(); });
 $('anaDate').addEventListener('change',function(){ if(!this.value||!D().length) return; S.anaIdx[S.game]=findIdx(D(),this.value); renderTab(); });
 setGame('lotto');
 })();

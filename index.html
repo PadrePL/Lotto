@@ -736,7 +736,7 @@ function renderData(){
     return;
   }
   const first=draws[0], last=draws[draws.length-1], nd=nextDrawDate(draws,new Date());
-  $('dataInfo').innerHTML='<span class="pill ok">Automatycznie</span>'+fmt.format(draws.length)+' losowań od '+plDate(first.date)+' do '+whenOf(last)+'.'+(g.live?' Losowania co 4 minuty, plik odświeża się dwa razy dziennie.':(nd.iso?' Najbliższe losowanie: '+WD[nd.wd]+' '+plDate(nd.iso)+'.':''));
+  $('dataInfo').innerHTML='<span class="pill ok">Automatycznie</span>'+fmt.format(draws.length)+' losowań od '+plDate(first.date)+' do '+whenOf(last)+'.'+(g.live?' Losowania co 4 minuty, plik odświeża się trzy razy dziennie.':(nd.iso?' Najbliższe losowanie: '+WD[nd.wd]+' '+plDate(nd.iso)+'.':''));
   $('lastDraw').innerHTML='<div class="hint" style="margin-bottom:4px">Ostatnie losowanie, '+whenOf(last)+'</div><div class="balls">'+ballsHTML(last.nums,'sm')+(last.extra.length?'<span class="sep" aria-hidden="true"></span>'+ballsHTML(last.extra,'sm euro'):'')+'</div>';
 }
 

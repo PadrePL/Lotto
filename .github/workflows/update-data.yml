@@ -1,12 +1,14 @@
 name: Aktualizacja wyników
 
-# Dwa razy dziennie pobiera aktualne wyniki i zapisuje je w folderze data.
+# Trzy razy dziennie pobiera aktualne wyniki i zapisuje je w folderze data.
 # Lotto, Lotto Plus, Mini Lotto i Eurojackpot pochodzą z mbnet.com.pl,
-# Keno z lotto.pl (ostatnie ok. 10 000 losowań).
+# Keno z multipasko.pl (1000 ostatnich losowań przy każdym pobraniu);
+# plik keno.csv rośnie z każdym uruchomieniem, do 20 000 losowań.
 on:
   schedule:
     - cron: '30 21 * * *'
     - cron: '0 6 * * *'
+    - cron: '0 14 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,49 +34,80 @@ jobs:
         continue-on-error: true
         shell: python
         run: |
-          import json, urllib.request, datetime, sys
+          import csv, io, json, os, sys, urllib.request, datetime
           from zoneinfo import ZoneInfo
-          WAW = ZoneInfo("Europe/Warsaw")
-          URL = ("https://www.lotto.pl/api/lotteries/draw-results/by-gametype"
-                 "?game=Keno&index={i}&size={s}&sort=drawDate&order=DESC")
-          rows = {}
-          size, want = 500, 10000
-          for i in range(1, 41):
-              req = urllib.request.Request(URL.format(i=i, s=size), headers={
-                  "User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+          PATH = "data/keno.csv"
+          KEEP = 20000          # ile ostatnich losowań trzymać w pliku
+          HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                 "Accept": "*/*", "Accept-Language": "pl-PL,pl;q=0.9"}
+          rows = {}             # numer losowania -> (data, godzina, liczby)
+
+          # 1. Wyniki zebrane wcześniej (plik rośnie z każdym uruchomieniem)
+          if os.path.exists(PATH):
+              for line in open(PATH, encoding="utf-8"):
+                  p = line.strip().split(";")
+                  if (len(p) >= 4 and p[0].isdigit() and len(p[1]) == 10
+                          and len(p[3].split(",")) == 20):
+                      rows[int(p[0])] = (p[1], p[2], p[3])
+          print("Było w pliku:", len(rows))
+
+          def get(url):
+              req = urllib.request.Request(url, headers=HDR)
               with urllib.request.urlopen(req, timeout=60) as r:
-                  data = json.load(r)
+                  return r.read().decode("utf-8-sig", errors="replace")
+
+          # 2. multipasko.pl: 1000 ostatnich losowań w CSV
+          try:
+              text = get("https://www.multipasko.pl/wyniki-csv.php?f=keno")
+              added = 0
+              for p in csv.reader(io.StringIO(text), delimiter=";"):
+                  if len(p) < 25 or not p[0].strip().isdigit():
+                      continue
+                  nums = sorted(int(x) for x in p[5:25])
+                  if len(set(nums)) != 20 or not all(1 <= x <= 70 for x in nums):
+                      continue
+                  date = f"{int(p[3]):04d}-{int(p[2]):02d}-{int(p[1]):02d}"
+                  rows[int(p[0])] = (date, p[4].strip()[:5], ",".join(map(str, nums)))
+                  added += 1
+              print("multipasko.pl:", added)
+          except Exception as e:
+              print("multipasko.pl nie odpowiedział:", e)
+
+          # 3. lotto.pl (próba dodatkowa, może być zablokowana)
+          try:
+              waw = ZoneInfo("Europe/Warsaw")
+              url = ("https://www.lotto.pl/api/lotteries/draw-results/by-gametype"
+                     "?game=Keno&index=1&size=500&sort=drawDate&order=DESC")
+              data = json.loads(get(url))
               items = data.get("items") if isinstance(data, dict) else data
-              if not items:
-                  break
-              for it in items:
-                  results = it.get("results") or [it]
-                  for res in results:
-                      game = res.get("gameType") or it.get("gameType") or ""
-                      if game.lower() != "keno":
-                          continue
+              added = 0
+              for it in items or []:
+                  for res in it.get("results") or [it]:
                       nums = res.get("resultsJson") or []
-                      if len(nums) != 20:
-                          continue
                       sid = res.get("drawSystemId") or it.get("drawSystemId")
                       raw = res.get("drawDate") or it.get("drawDate") or ""
-                      try:
-                          dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                          if dt.tzinfo:
-                              dt = dt.astimezone(WAW)
-                      except ValueError:
+                      if len(nums) != 20 or not sid or not raw:
                           continue
-                      rows[int(sid)] = (dt, sorted(int(x) for x in nums))
-              if len(rows) >= want:
-                  break
-          print("Pobrano losowań Keno:", len(rows))
+                      dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                      if dt.tzinfo:
+                          dt = dt.astimezone(waw)
+                      rows[int(sid)] = (f"{dt:%Y-%m-%d}", f"{dt:%H:%M}",
+                                        ",".join(map(str, sorted(int(x) for x in nums))))
+                      added += 1
+              print("lotto.pl:", added)
+          except Exception as e:
+              print("lotto.pl nie odpowiedział:", e)
+
           if len(rows) < 100:
-              sys.exit("Za mało wyników Keno, plik bez zmian.")
-          lines = ["numer;data;godzina;liczby;dodatkowe;mnoznik;premia"]
-          for sid in sorted(rows):
-              dt, nums = rows[sid]
-              lines.append(f"{sid};{dt:%Y-%m-%d};{dt:%H:%M};{','.join(map(str, nums))};;;")
-          open("data/keno.csv", "w", encoding="utf-8").write("\n".join(lines) + "\n")
+              sys.exit("Nie udało się pobrać wyników Keno, plik bez zmian.")
+          keep = sorted(rows)[-KEEP:]
+          with open(PATH, "w", encoding="utf-8") as f:
+              f.write("numer;data;godzina;liczby;dodatkowe;mnoznik;premia\n")
+              for sid in keep:
+                  d, t, n = rows[sid]
+                  f.write(f"{sid};{d};{t};{n};;;\n")
+          print("Zapisano losowań Keno:", len(keep))
 
       - name: Zapisz zmiany
         run: |
